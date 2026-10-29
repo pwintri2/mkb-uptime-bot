@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ monitor.name }} — MKB Uptime Details{% endblock %}
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+        <div>
+            <a href="{{ root_path or '' }}/" class="text-xs text-emerald-400 hover:underline">← Terug naar overzicht</a>
+            <h2 class="text-2xl font-bold text-white mt-1">
+                {{ monitor.subscriber.company_name if monitor.subscriber else '' }} — {{ monitor.name }}
+            </h2>
+            <p class="text-sm text-slate-400">{{ monitor.url }}</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <form action="{{ root_path or '' }}/monitors/{{ monitor.id }}/check-now" method="post">
+                <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm">
+                    Voer Nu Volledige Check Uit
+                </button>
+            </form>
+            <form action="{{ root_path or '' }}/monitors/{{ monitor.id }}/delete" method="post">
+                <button type="submit" class="px-3 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-sm">
+                    Verwijderen
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <p class="text-xs text-slate-400">Huidige Status</p>
+            <p class="text-xl font-bold mt-1 {% if monitor.status.value == 'up' %}text-emerald-400{% elif monitor.status.value == 'degraded' %}text-amber-400{% else %}text-rose-400{% endif %}">
+                {{ monitor.status.value|upper }}
+            </p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <p class="text-xs text-slate-400">Laatste Responstijd</p>
+            <p class="text-xl font-bold text-white mt-1">{{ monitor.last_response_ms or '-' }} ms <span class="text-xs text-slate-400 font-normal">(max {{ monitor.max_response_ms }} ms)</span></p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <p class="text-xs text-slate-400">SSL-Certificaat</p>
+            <p class="text-xl font-bold text-white mt-1">
+                {% if monitor.ssl_days_remaining is not none %}{{ monitor.ssl_days_remaining }} dagen{% else %}n.v.t.{% endif %}
+            </p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <p class="text-xs text-slate-400">Bewaking op Kernwoorden & Formulier</p>
+            <p class="text-xs text-slate-200 mt-1">Keywords: <span class="font-mono">{{ monitor.expected_keywords or 'Geen' }}</span></p>
+            <p class="text-xs text-slate-200 mt-0.5">Selector: <span class="font-mono">{{ monitor.check_form_selector or 'Uit' }}</span></p>
+        </div>
+    </div>
+
+    <!-- Laatste 35 Check-resultaten -->
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800">
+            <h3 class="text-sm font-semibold text-white">Recente Metingen (Minuut & Diepe Checks)</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-950/50 text-slate-400 uppercase border-b border-slate-800">
+                    <tr>
+                        <th class="py-2.5 px-4">Tijdstip (UTC)</th>
+                        <th class="py-2.5 px-4">Type Check</th>
+                        <th class="py-2.5 px-4">Resultaat</th>
+                        <th class="py-2.5 px-4">HTTP / Duur</th>
+                        <th class="py-2.5 px-4">Keywords & Formulier</th>
+                        <th class="py-2.5 px-4">Details / Foutmelding</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60">
+                    {% for c in recent_checks %}
+                    <tr>
+                        <td class="py-2.5 px-4 font-mono text-slate-300">{{ c.checked_at.strftime('%d-%m-%Y %H:%M:%S') }}</td>
+                        <td class="py-2.5 px-4 font-mono text-slate-400">{{ c.check_type }}</td>
+                        <td class="py-2.5 px-4">
+                            {% if not c.is_up %}
+                            <span class="text-rose-400 font-semibold">FOUT ({{ c.error_code }})</span>
+                            {% elif c.is_degraded %}
+                            <span class="text-amber-400 font-semibold">WAARSCHUWING ({{ c.error_code }})</span>
+                            {% else %}
+                            <span class="text-emerald-400">OK</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2.5 px-4 font-mono">
+                            {% if c.status_code %}HTTP {{ c.status_code }} · {% endif %}
+                            {% if c.response_ms %}{{ c.response_ms }} ms{% else %}-{% endif %}
+                        </td>
+                        <td class="py-2.5 px-4">
+                            KW: {{ '✓' if c.keywords_ok else '✗' }} · Form: {{ '✓' if c.form_ok else '✗' }}
+                            {% if c.ssl_days_left is not none %} · SSL: {{ c.ssl_days_left }}d{% endif %}
+                        </td>
+                        <td class="py-2.5 px-4 text-slate-300">{{ c.error_detail or 'Geen problemen gevonden' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="py-6 text-center text-slate-400">Nog geen metingen uitgevoerd voor dit domein.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-8">
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+            <p class="text-xs uppercase tracking-wider text-slate-400">Gemonitorde MKB Domeinen</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <p class="text-3xl font-bold text-white">{{ total_monitors }}</p>
+                <span class="text-xs text-emerald-400">{{ up_count }} online · {{ degraded_count }} waarschuwing · {{ down_count }} storing</span>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+            <p class="text-xs uppercase tracking-wider text-slate-400">Gemiddelde Uptime</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <p class="text-3xl font-bold text-emerald-400">{{ uptime_pct }}%</p>
+                <span class="text-xs text-slate-400">Afgelopen 30 dagen</span>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+            <p class="text-xs uppercase tracking-wider text-slate-400">Actieve Storingen</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <p class="text-3xl font-bold {% if down_count > 0 %}text-rose-400{% elif degraded_count > 0 %}text-amber-400{% else %}text-slate-100{% endif %}">
+                    {{ down_count + degraded_count }}
+                </p>
+                <span class="text-xs text-slate-400">Anti-flapping drempel: 2 checks</span>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+            <p class="text-xs uppercase tracking-wider text-slate-400">Maandelijkse Omzet (MRR)</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <p class="text-3xl font-bold text-indigo-400">€ {{ mrr_eur }},00</p>
+                <span class="text-xs text-slate-400">€3 / €5 / €7 pakketten</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Lijst van MKB Websites (2/3 breedte) -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">Gemonitorde Klantwebsites</h2>
+                        <p class="text-xs text-slate-400">Ververst automatisch elke 15 seconden via HTMX</p>
+                    </div>
+                </div>
+                <div id="monitor-table-container" hx-get="{{ root_path or '' }}/partials/monitors" hx-trigger="every 15s" hx-swap="innerHTML">
+                    {% include "partials/monitor_table.html" %}
+                </div>
+            </div>
+
+            <!-- Recente Incidenten -->
+            <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-800">
+                    <h2 class="text-base font-semibold text-white">Recente Storingen & Waarschuwingen</h2>
+                </div>
+                <div class="divide-y divide-slate-800/80">
+                    {% for inc in recent_incidents %}
+                    <div class="px-6 py-3.5 flex items-center justify-between text-sm">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                {% if inc.is_open %}
+                                <span class="px-2 py-0.5 text-xs rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-medium">OPEN</span>
+                                {% else %}
+                                <span class="px-2 py-0.5 text-xs rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium">OPGELOST</span>
+                                {% endif %}
+                                <span class="font-medium text-white">{{ inc.monitor.name if inc.monitor else 'Monitor' }}</span>
+                                <span class="text-xs font-mono text-slate-400">[{{ inc.reason_code }}]</span>
+                            </div>
+                            <p class="text-xs text-slate-300 mt-1">{{ inc.summary }}</p>
+                        </div>
+                        <div class="text-right text-xs text-slate-400">
+                            <div>Start: {{ inc.started_at.strftime('%d-%m %H:%M') }}</div>
+                            {% if inc.resolved_at %}
+                            <div class="text-emerald-400">Hersteld: {{ inc.resolved_at.strftime('%d-%m %H:%M') }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="px-6 py-8 text-center text-sm text-slate-400">
+                        Geen incidenten geregistreerd. Alle systemen draaien stabiel.
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Formulier: Nieuwe MKB Klant + Website toevoegen -->
+        <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-6 h-fit">
+            <h2 class="text-base font-semibold text-white">Nieuwe MKB-klant toevoegen</h2>
+            <p class="text-xs text-slate-400 mt-1 mb-5">Activeer direct 1-minuut uptime, SSL, kernwoorden & contactformulier controle.</p>
+
+            <form action="{{ root_path or '' }}/monitors" method="post" class="space-y-4 text-sm">
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Bedrijfsnaam (Abonnee)</label>
+                    <input type="text" name="company_name" required placeholder="Bijv. Bakkerij Jansen B.V."
+                        class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Pakket</label>
+                        <select name="plan_tier" class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                            <option value="basis">Basis (€ 3 / mnd)</option>
+                            <option value="pro" selected>Pro Formulier (€ 5 / mnd)</option>
+                            <option value="compleet">Compleet + WhatsApp (€ 7 / mnd)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Weergavenaam</label>
+                        <input type="text" name="monitor_name" required placeholder="Contactpagina"
+                            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Te bewaken URL</label>
+                    <input type="url" name="url" required placeholder="https://bakkerij-jansen.nl/contact"
+                        class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Verplichte Kernwoorden (komma-gescheiden)</label>
+                    <input type="text" name="expected_keywords" placeholder="Openingstijden, Bestellen, Contact"
+                        class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Formulier CSS-selector</label>
+                        <input type="text" name="check_form_selector" value="form" placeholder="form of #contact-form"
+                            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Max laadtijd (ms)</label>
+                        <input type="number" name="max_response_ms" value="2500"
+                            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                    </div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-800 space-y-3">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Notificatiekanalen</p>
+                    <div>
+                        <label class="block text-xs text-slate-300 mb-1">E-mailadres voor alerts</label>
+                        <input type="email" name="contact_email" required placeholder="info@bakkerij-jansen.nl"
+                            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-slate-300 mb-1">Telegram Chat ID</label>
+                            <input type="text" name="telegram_chat_id" placeholder="Bijv. 123456789"
+                                class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-300 mb-1">WhatsApp (E.164)</label>
+                            <input type="text" name="whatsapp_number" placeholder="+31612345678"
+                                class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-white">
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit"
+                    class="w-full rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2.5 transition">
+                    Domein Toevoegen & Bewaken
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

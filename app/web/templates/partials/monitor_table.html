@@ -1,0 +1,106 @@
+<div class="overflow-x-auto">
+    <table class="w-full text-left border-collapse text-sm">
+        <thead>
+            <tr class="border-b border-slate-800 text-xs uppercase text-slate-400 bg-slate-950/40">
+                <th class="py-3 px-4">Status</th>
+                <th class="py-3 px-4">MKB Klant & Domein</th>
+                <th class="py-3 px-4">Laadtijd</th>
+                <th class="py-3 px-4">SSL & Formulier</th>
+                <th class="py-3 px-4">Pakket</th>
+                <th class="py-3 px-4 text-right">Actie</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800/70">
+            {% for m in monitors %}
+            <tr class="hover:bg-slate-800/30 transition">
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                    {% if m.status.value == 'up' %}
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        <span class="h-2 w-2 rounded-full bg-emerald-400"></span> ONLINE
+                    </span>
+                    {% elif m.status.value == 'degraded' %}
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        <span class="h-2 w-2 rounded-full bg-amber-400"></span> TRAAG / SSL
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        <span class="h-2 w-2 rounded-full bg-rose-400 animate-ping"></span> STORING
+                    </span>
+                    {% endif %}
+                </td>
+
+                <td class="py-3.5 px-4">
+                    <a href="{{ root_path or '' }}/monitors/{{ m.id }}" class="font-medium text-white hover:text-emerald-400 transition">
+                        {{ m.subscriber.company_name if m.subscriber else m.name }} — {{ m.name }}
+                    </a>
+                    <div class="text-xs text-slate-400 truncate max-w-xs">{{ m.url }}</div>
+                    {% if m.last_error_reason %}
+                    <div class="text-xs text-rose-400 mt-0.5">{{ m.last_error_reason }}</div>
+                    {% endif %}
+                </td>
+
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                    {% if m.last_response_ms is not none %}
+                    <span class="font-mono text-xs {% if m.last_response_ms > m.max_response_ms %}text-amber-400 font-semibold{% else %}text-slate-200{% endif %}">
+                        {{ m.last_response_ms }} ms
+                    </span>
+                    <div class="text-[11px] text-slate-500">HTTP {{ m.last_status_code or '-' }}</div>
+                    {% else %}
+                    <span class="text-xs text-slate-500">Nog niet gecheckt</span>
+                    {% endif %}
+                </td>
+
+                <td class="py-3.5 px-4 whitespace-nowrap text-xs">
+                    <div>
+                        SSL:
+                        {% if m.ssl_days_remaining is not none %}
+                            <span class="{% if m.ssl_days_remaining <= m.ssl_warn_days %}text-amber-400 font-semibold{% else %}text-emerald-400{% endif %}">
+                                {{ m.ssl_days_remaining }} dgn geldig
+                            </span>
+                        {% else %}
+                            <span class="text-slate-500">n.v.t.</span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-0.5">
+                        Formulier:
+                        {% if m.form_status_ok is true %}
+                            <span class="text-emerald-400">✓ Actief</span>
+                        {% elif m.form_status_ok is false %}
+                            <span class="text-rose-400 font-semibold">✗ Kapot</span>
+                        {% else %}
+                            <span class="text-slate-500">-</span>
+                        {% endif %}
+                    </div>
+                </td>
+
+                <td class="py-3.5 px-4 whitespace-nowrap text-xs">
+                    {% if m.subscriber %}
+                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        {{ m.subscriber.plan_tier.value|upper }} (€{{ m.subscriber.plan_tier.monthly_price_eur }}/mnd)
+                    </span>
+                    {% endif %}
+                </td>
+
+                <td class="py-3.5 px-4 whitespace-nowrap text-right space-x-2">
+                    <button
+                        hx-post="{{ root_path or '' }}/monitors/{{ m.id }}/check-now"
+                        hx-target="#monitor-table-container"
+                        hx-swap="innerHTML"
+                        class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-emerald-300 border border-slate-700 transition">
+                        Nu checken
+                    </button>
+                    <a href="{{ root_path or '' }}/monitors/{{ m.id }}" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-xs text-slate-300 border border-slate-800">
+                        Details
+                    </a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" class="py-8 text-center text-slate-400">
+                    Nog geen MKB-domeinen toegevoegd. Voeg rechts je eerste klant toe!
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

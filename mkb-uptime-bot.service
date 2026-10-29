@@ -1,0 +1,16 @@
+[Unit]
+Description=MKB Website Monitoring & Uptime Bot (FastAPI + APScheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/philip-wintrip.nl/html/mkb-uptime-bot
+Environment=PATH=/var/www/philip-wintrip.nl/html/mkb-uptime-bot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/var/www/philip-wintrip.nl/html/mkb-uptime-bot/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8815
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
