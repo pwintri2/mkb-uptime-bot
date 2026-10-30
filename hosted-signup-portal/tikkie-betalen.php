@@ -101,6 +101,15 @@ $clickedPaid   = !empty($order['customer_clicked_paid']);
 <!DOCTYPE html>
 <html lang="nl" class="h-full bg-slate-950 text-slate-100">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18546508397"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'AW-18546508397');
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rond je Tikkie iDEAL-betaling af — MKB Uptime Bot</title>
