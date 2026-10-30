@@ -4,11 +4,12 @@
  * 1. Als Mollie API-sleutel is ingevuld: maakt een Mollie Customer + 1e iDEAL-betaling (sequenceType=first) aan
  *    voor automatische maandelijkse SEPA-afschrijving.
  * 2. Als Mollie API-sleutel nog leeg is (directe activatie / testmodus):
- *    logt direct met het geheime toegangsnummer (X-Access-Code) in op jouw VPS
- *    (https://philip-wintrip.nl/mkb-uptime-bot/provision.php) en maakt het account + 1-minuut monitor aan!
+ *    logt via wintrip_vps_auth.php automatisch met de pincode + X-Access-Code in op jouw VPS
+ *    en maakt het account + 1-minuut monitor aan!
  */
 
 $config = require __DIR__ . '/config.php';
+require_once __DIR__ . '/wintrip_vps_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: index.php');
@@ -43,33 +44,31 @@ if ($payload['company_name'] === '' || $payload['contact_email'] === '' || $payl
 }
 
 /**
- * Hulpfunctie om met het toegangsnummer in te loggen op de VPS en het account aan te maken.
+ * Hulpfunctie om via wintrip_vps_auth.php (automatische pincode-sessie + X-Access-Code)
+ * het account op de VPS aan te maken.
  */
 function provisionOnVps(array $config, array $payload): array {
-    $ch = curl_init($config['vps_provision_url']);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'X-Access-Code: ' . $config['vps_access_code'],
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_TIMEOUT        => 20,
-    ]);
-    $raw = curl_exec($ch);
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
+    $res = wintripVpsRequest(
+        $config,
+        $config['vps_provision_url'],
+        'POST',
+        json_encode($payload),
+        ['Content-Type: application/json']
+    );
 
-    if ($raw === false) {
-        return ['ok' => false, 'error' => 'Verbindingsfout naar VPS: ' . $err];
-    }
-    $decoded = json_decode($raw, true);
-    if ($status >= 400 || !is_array($decoded) || empty($decoded['ok'])) {
+    if (!$res['ok']) {
+        $decodedErr = json_decode($res['body'] ?: '{}', true);
         return [
-            'ok' => false,
-            'error' => $decoded['detail'] ?? $decoded['error'] ?? ('VPS HTTP ' . $status),
+            'ok'    => false,
+            'error' => $decodedErr['detail'] ?? $decodedErr['error'] ?? $res['error'] ?? ('VPS HTTP ' . $res['status']),
+        ];
+    }
+
+    $decoded = json_decode($res['body'], true);
+    if (!is_array($decoded) || empty($decoded['ok'])) {
+        return [
+            'ok'    => false,
+            'error' => $decoded['detail'] ?? $decoded['error'] ?? 'Ongeldig antwoord van VPS.',
         ];
     }
     return $decoded;
@@ -152,7 +151,7 @@ if (!empty($config['mollie_api_key'])) {
 }
 
 // ============================================================================
-// OPTIE B: Directe VPS-activatie met het toegangsnummer (wanneer Mollie nog leeg is)
+// OPTIE B: Directe VPS-activatie met automatische pincode-login + toegangsnummer
 // ============================================================================
 $result = provisionOnVps($config, $payload);
 if (empty($result['ok'])) {
@@ -161,9 +160,10 @@ if (empty($result['ok'])) {
     exit;
 }
 
+$localPortal = 'status.php?token=' . urlencode($result['subscriber_token']);
 header(
     'Location: bedankt.php?token=' . urlencode($result['subscriber_token'])
     . '&company=' . urlencode($result['company_name'])
-    . '&portal=' . urlencode($result['portal_url'])
+    . '&portal=' . urlencode($localPortal)
 );
 exit;

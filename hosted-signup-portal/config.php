@@ -4,17 +4,23 @@
  */
 
 return [
-    // 1. Verbinding met jouw VPS (philip-wintrip.nl)
+    // 1. Basis-URL van jouw VPS en het MKB Uptime Bot endpoint
+    'vps_base_url'      => getenv('VPS_BASE_URL') ?: 'https://philip-wintrip.nl',
     'vps_provision_url' => getenv('VPS_PROVISION_URL') ?: 'https://philip-wintrip.nl/mkb-uptime-bot/provision.php',
 
-    // Het geheime toegangsnummer waarmee deze site inlogt op jouw VPS (moet overeenkomen met PROVISION_ACCESS_CODE op de VPS)
+    // 2. Pincode voor /login op philip-wintrip.nl (/opt/wintrip-auth/app.py)
+    // Tip: Je kunt op https://philip-wintrip.nl/admin/gebruikers een aparte gebruiker (bijv. "HostedSite")
+    // met een eigen pincode aanmaken en die pincode hier invullen!
+    'vps_pin'           => getenv('VPS_PIN') ?: 'VUL_HIER_JE_PINCODE_IN',
+
+    // 3. Extra API-sleutel voor de MKB Uptime Bot provisioning (moet overeenkomen met PROVISION_ACCESS_CODE op de VPS)
     'vps_access_code'   => getenv('VPS_ACCESS_CODE') ?: 'MKB-VPS-2026-SECRET',
 
-    // 2. Mollie API-sleutel voor iDEAL (1e betaling) + automatische maandelijkse SEPA-incasso
+    // 4. Mollie API-sleutel voor iDEAL (1e betaling) + automatische maandelijkse SEPA-incasso
     // Vul hier je 'test_...' of 'live_...' key in. Laat leeg ('') om direct zonder betaling te testen.
     'mollie_api_key'    => getenv('MOLLIE_API_KEY') ?: '',
 
-    // 3. Pakketprijzen (per domein per maand in EUR)
+    // 5. Pakketprijzen (per domein per maand in EUR)
     'plans' => [
         'basis' => [
             'name'        => 'Basis Uptime & SSL',

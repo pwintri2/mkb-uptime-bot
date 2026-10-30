@@ -3,13 +3,15 @@
  * Mollie Webhook op philip-wintrip.com (of eigen domein):
  * - Zodra de 1e betaling ('first') op 'paid' springt:
  *   1. Start bij Mollie het maandelijkse automatische SEPA-incasso abonnement (interval: '1 month').
- *   2. Logt met het toegangsnummer (X-Access-Code) in op jouw VPS (provision.php)
+ *   2. Logt via wintrip_vps_auth.php automatisch met de pincode + het toegangsnummer in op jouw VPS
  *      en maakt het MKB-account + de 1-minuut monitor aan!
  * - Als een latere maandelijkse afschrijving ('recurring') mislukt of wordt gestorneerd:
  *   pauzeert automatisch het account op de VPS via provision.php?action=subscription-status.
  */
 
 $config = require __DIR__ . '/config.php';
+require_once __DIR__ . '/wintrip_vps_auth.php';
+
 $apiKey = $config['mollie_api_key'];
 $paymentId = $_POST['id'] ?? '';
 
@@ -71,20 +73,18 @@ if ($sequenceType === 'first' && $status === 'paid' && $customerId !== '' && $or
         $payload['mollie_subscription_id'] = $subscription['id'] ?? null;
         $payload['payment_status']         = 'active';
 
-        // 2. Roep de VPS aan met het geheime toegangsnummer om het account + monitor te activeren
-        $chVps = curl_init($config['vps_provision_url']);
-        curl_setopt_array($chVps, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'X-Access-Code: ' . $config['vps_access_code'],
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_TIMEOUT        => 20,
-        ]);
-        $vpsRes = json_decode(curl_exec($chVps) ?: '{}', true) ?: [];
-        curl_close($chVps);
+        // 2. Roep de VPS aan met automatische pincode-login + toegangsnummer
+        $res = wintripVpsRequest(
+            $config,
+            $config['vps_provision_url'],
+            'POST',
+            json_encode($payload),
+            ['Content-Type: application/json']
+        );
+        $vpsRes = json_decode($res['body'] ?: '{}', true) ?: [];
+        if (!empty($vpsRes['subscriber_token'])) {
+            $vpsRes['portal_url'] = 'status.php?token=' . urlencode($vpsRes['subscriber_token']);
+        }
 
         // Bewaar resultaat zodat bedankt.php de persoonlijke dashboardlink kan tonen
         file_put_contents($orderFile . '.done', json_encode($vpsRes));
@@ -100,19 +100,13 @@ if ($sequenceType === 'first' && $status === 'paid' && $customerId !== '' && $or
         'is_active'          => $isPaid,
     ];
 
-    $chVps = curl_init($config['vps_provision_url'] . '?action=subscription-status');
-    curl_setopt_array($chVps, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'X-Access-Code: ' . $config['vps_access_code'],
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($statusPayload),
-        CURLOPT_TIMEOUT        => 15,
-    ]);
-    curl_exec($chVps);
-    curl_close($chVps);
+    wintripVpsRequest(
+        $config,
+        $config['vps_provision_url'] . '?action=subscription-status',
+        'POST',
+        json_encode($statusPayload),
+        ['Content-Type: application/json']
+    );
 }
 
 http_response_code(200);
