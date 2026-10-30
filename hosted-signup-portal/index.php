@@ -183,11 +183,7 @@ $mollieConfigured = !empty($config['mollie_api_key']);
                 </div>
 
                 <button type="submit" class="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3.5 text-sm transition shadow-lg shadow-emerald-500/10">
-                    <?php if ($mollieConfigured): ?>
-                        Ga naar iDEAL Betaling & Activeer Bewaking →
-                    <?php else: ?>
-                        Account Direct Activeren op Monitoring-VPS →
-                    <?php endif; ?>
+                    Account direct activeren
                 </button>
             </form>
         </section>
