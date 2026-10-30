@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="nl" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ subscriber.company_name }} — Live Website & Formulier Status</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta http-equiv="refresh" content="30">
+</head>
+<body class="min-h-full font-sans antialiased">
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-bold">
+                    MKB
+                </span>
+                <div>
+                    <h1 class="text-base font-semibold text-white">{{ subscriber.company_name }}</h1>
+                    <p class="text-xs text-slate-400">Persoonlijk Uptime & Formulier Dashboard · Pakket: {{ subscriber.plan_tier.value|upper }} (€{{ subscriber.plan_tier.monthly_price_eur }}/mnd)</p>
+                </div>
+            </div>
+            <div>
+                {% if subscriber.is_active %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    Abonnement Actief ({{ subscriber.payment_status }})
+                </span>
+                {% else %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Gepauzeerd ({{ subscriber.payment_status }})
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {% if monitor %}
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                <p class="text-xs text-slate-400">Huidige Status</p>
+                <p class="text-xl font-bold mt-1 {% if monitor.status.value == 'up' %}text-emerald-400{% elif monitor.status.value == 'degraded' %}text-amber-400{% else %}text-rose-400{% endif %}">
+                    {{ 'ONLINE' if monitor.status.value == 'up' else ('WAARSCHUWING' if monitor.status.value == 'degraded' else 'STORING') }}
+                </p>
+                <p class="text-xs text-slate-500 truncate mt-1">{{ monitor.url }}</p>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                <p class="text-xs text-slate-400">Laatste Laadtijd</p>
+                <p class="text-xl font-bold text-white mt-1">{{ monitor.last_response_ms or '-' }} ms</p>
+                <p class="text-xs text-slate-500 mt-1">Drempel: {{ monitor.max_response_ms }} ms</p>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                <p class="text-xs text-slate-400">SSL-Certificaat</p>
+                <p class="text-xl font-bold text-emerald-400 mt-1">
+                    {% if monitor.ssl_days_remaining is not none %}{{ monitor.ssl_days_remaining }} dagen geldig{% else %}Wordt gecheckt...{% endif %}
+                </p>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                <p class="text-xs text-slate-400">Contactformulier & Tekst</p>
+                <p class="text-sm font-semibold mt-1 {% if monitor.form_status_ok is false %}text-rose-400{% else %}text-emerald-400{% endif %}">
+                    Formulier: {{ '✓ Werkend' if monitor.form_status_ok is not false else '✗ Fout gedetecteerd' }}
+                </p>
+                <p class="text-xs text-slate-400 mt-1">Kernwoorden: {{ monitor.expected_keywords or 'Standaard' }}</p>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h2 class="text-sm font-semibold text-white">Laatste 25 Minuut-Checks voor {{ monitor.url }}</h2>
+                <span class="text-xs text-slate-400">Ververst automatisch elke 30 seconden</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-950/60 text-slate-400 uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="py-2.5 px-4">Tijdstip (UTC)</th>
+                            <th class="py-2.5 px-4">Type</th>
+                            <th class="py-2.5 px-4">Status</th>
+                            <th class="py-2.5 px-4">Responstijd</th>
+                            <th class="py-2.5 px-4">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        {% for c in recent_checks %}
+                        <tr>
+                            <td class="py-2.5 px-4 font-mono text-slate-300">{{ c.checked_at.strftime('%d-%m-%Y %H:%M:%S') }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-400">{{ c.check_type }}</td>
+                            <td class="py-2.5 px-4">
+                                {% if not c.is_up %}
+                                <span class="text-rose-400 font-semibold">STORING ({{ c.error_code }})</span>
+                                {% elif c.is_degraded %}
+                                <span class="text-amber-400 font-semibold">WAARSCHUWING ({{ c.error_code }})</span>
+                                {% else %}
+                                <span class="text-emerald-400 font-semibold">OK</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2.5 px-4 font-mono">{{ c.response_ms or '-' }} ms</td>
+                            <td class="py-2.5 px-4 text-slate-300">{{ c.error_detail or 'Website, kernwoorden & formulier in orde' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="py-6 text-center text-slate-400">Eerste meting wordt nu uitgevoerd... Ververs de pagina over enkele seconden.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </main>
+</body>
+</html>

@@ -1,11 +1,13 @@
 from pathlib import Path
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+import secrets
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database import get_db
 from app.models import (
     ChannelType,
@@ -17,6 +19,7 @@ from app.models import (
     PlanTier,
     Subscriber,
 )
+from app.schemas import ProvisionSubscriberRequest, SubscriptionStatusUpdateRequest
 from app.services.scheduler import execute_single_monitor_check
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -255,3 +258,195 @@ async def api_summary(session: AsyncSession = Depends(get_db)) -> dict:
         "mrr_eur": ctx["mrr_eur"],
         "uptime_pct": ctx["uptime_pct"],
     }
+
+
+def _verify_access_code(request: Request, body_code: str = "") -> None:
+    provided = (
+        request.headers.get("X-Access-Code")
+        or body_code
+        or ""
+    ).strip()
+    expected = settings.provision_access_code.strip()
+    if not expected or not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Ongeldig toegangsnummer (X-Access-Code) voor VPS provisioning.",
+        )
+
+
+@router.post("/api/provision")
+async def api_provision_subscriber(
+    payload: ProvisionSubscriberRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Beveiligd endpoint waarmee de gehoste aanmeldpagina (philip-wintrip.com)
+    met het geheime toegangsnummer automatisch een nieuw MKB-account + monitor aanmaakt op de VPS.
+    """
+    _verify_access_code(request, payload.access_code)
+
+    tier_str = payload.plan_tier.lower().strip()
+    tier_enum = (
+        PlanTier(tier_str)
+        if tier_str in {"basis", "pro", "compleet"}
+        else PlanTier.PRO
+    )
+
+    normalized_url = payload.url.strip()
+    if not normalized_url.startswith(("http://", "https://")):
+        normalized_url = f"https://{normalized_url}"
+
+    subscriber = Subscriber(
+        company_name=payload.company_name.strip(),
+        contact_email=payload.contact_email.strip(),
+        plan_tier=tier_enum,
+        is_active=(payload.payment_status != "canceled"),
+        payment_status=payload.payment_status,
+        mollie_customer_id=payload.mollie_customer_id,
+        mollie_subscription_id=payload.mollie_subscription_id,
+    )
+    session.add(subscriber)
+    await session.flush()
+
+    if payload.contact_email.strip():
+        session.add(
+            NotificationChannel(
+                subscriber_id=subscriber.id,
+                channel_type=ChannelType.EMAIL,
+                target=payload.contact_email.strip(),
+            )
+        )
+    if payload.telegram_chat_id.strip():
+        session.add(
+            NotificationChannel(
+                subscriber_id=subscriber.id,
+                channel_type=ChannelType.TELEGRAM,
+                target=payload.telegram_chat_id.strip(),
+            )
+        )
+    if payload.whatsapp_number.strip():
+        session.add(
+            NotificationChannel(
+                subscriber_id=subscriber.id,
+                channel_type=ChannelType.WHATSAPP,
+                target=payload.whatsapp_number.strip(),
+            )
+        )
+
+    monitor = Monitor(
+        subscriber_id=subscriber.id,
+        name=payload.monitor_name.strip() or payload.company_name.strip(),
+        url=normalized_url,
+        expected_keywords=payload.expected_keywords.strip(),
+        check_form_selector=(payload.check_form_selector or "").strip() or None,
+        max_response_ms=payload.max_response_ms,
+        ssl_warn_days=payload.ssl_warn_days,
+    )
+    session.add(monitor)
+    await session.commit()
+
+    if payload.run_initial_check:
+        background_tasks.add_task(execute_single_monitor_check, monitor.id, True)
+
+    return {
+        "ok": True,
+        "subscriber_id": subscriber.id,
+        "subscriber_token": subscriber.access_token,
+        "monitor_id": monitor.id,
+        "company_name": subscriber.company_name,
+        "url": monitor.url,
+        "plan_tier": tier_enum.value,
+        "monthly_price_eur": tier_enum.monthly_price_eur,
+        "payment_status": subscriber.payment_status,
+        "portal_url": f"https://philip-wintrip.nl/mkb-uptime-bot/klant.php?token={subscriber.access_token}",
+    }
+
+
+@router.post("/api/subscription-status")
+async def api_update_subscription_status(
+    payload: SubscriptionStatusUpdateRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Ontvangt maandelijkse incasso-updates (bijv. vanuit de Mollie webhook op philip-wintrip.com)
+    en activeert of pauzeert het MKB-account op de VPS.
+    """
+    _verify_access_code(request, payload.access_code)
+
+    stmt = select(Subscriber).options(selectinload(Subscriber.monitors))
+    if payload.subscriber_token:
+        stmt = stmt.where(Subscriber.access_token == payload.subscriber_token)
+    elif payload.mollie_subscription_id:
+        stmt = stmt.where(Subscriber.mollie_subscription_id == payload.mollie_subscription_id)
+    elif payload.mollie_customer_id:
+        stmt = stmt.where(Subscriber.mollie_customer_id == payload.mollie_customer_id)
+    else:
+        raise HTTPException(status_code=400, detail="Geen klant-identificatie opgegeven.")
+
+    subscriber = (await session.execute(stmt)).scalars().first()
+    if not subscriber:
+        raise HTTPException(status_code=404, detail="Abonnee niet gevonden.")
+
+    subscriber.payment_status = payload.payment_status
+    subscriber.is_active = payload.is_active
+    if payload.mollie_customer_id:
+        subscriber.mollie_customer_id = payload.mollie_customer_id
+    if payload.mollie_subscription_id:
+        subscriber.mollie_subscription_id = payload.mollie_subscription_id
+
+    for m in subscriber.monitors:
+        m.is_paused = not payload.is_active
+
+    await session.commit()
+    return {
+        "ok": True,
+        "subscriber_id": subscriber.id,
+        "subscriber_token": subscriber.access_token,
+        "is_active": subscriber.is_active,
+        "payment_status": subscriber.payment_status,
+    }
+
+
+@router.get("/portal/{subscriber_token}", response_class=HTMLResponse)
+async def subscriber_portal_page(
+    subscriber_token: str,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Persoonlijke statuspagina voor één geabonneerde MKB-klant."""
+    stmt = (
+        select(Subscriber)
+        .options(
+            selectinload(Subscriber.monitors).selectinload(Monitor.incidents),
+            selectinload(Subscriber.channels),
+        )
+        .where(Subscriber.access_token == subscriber_token)
+    )
+    subscriber = (await session.execute(stmt)).scalars().first()
+    if not subscriber:
+        raise HTTPException(status_code=404, detail="Klantportaal niet gevonden.")
+
+    monitor = subscriber.monitors[0] if subscriber.monitors else None
+    recent_checks: list[CheckResult] = []
+    if monitor:
+        stmt_checks = (
+            select(CheckResult)
+            .where(CheckResult.monitor_id == monitor.id)
+            .order_by(CheckResult.checked_at.desc())
+            .limit(25)
+        )
+        recent_checks = list((await session.execute(stmt_checks)).scalars().all())
+
+    return templates.TemplateResponse(
+        request,
+        "subscriber_portal.html",
+        {
+            "request": request,
+            "subscriber": subscriber,
+            "monitor": monitor,
+            "recent_checks": recent_checks,
+        },
+    )

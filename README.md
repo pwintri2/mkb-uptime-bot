@@ -135,8 +135,16 @@ mkb-uptime-bot/
 │       └── templates/          # Jinja2 + HTMX + Tailwind CSS templates
 ├── assets/
 │   └── hero-banner.png         # Overzichtsillustratie
+├── hosted-signup-portal/       # Kant-en-klare PHP aanmeld- & Mollie-incasso portal (voor philip-wintrip.com)
+│   ├── config.php              # Instellingen: VPS URL, toegangsnummer & Mollie API-sleutel
+│   ├── index.php               # Publieke MKB verkoop- & aanmeldpagina (€3 / €5 / €7)
+│   ├── subscribe.php           # Verwerkt aanmelding, start 1e iDEAL-betaling of activeert direct op VPS
+│   ├── webhook.php             # Start na 1e iDEAL-betaling automatisch het maandelijkse SEPA-abonnement
+│   └── bedankt.php             # Bevestigingspagina met persoonlijke klant-statuslink
 ├── tests/                      # Volledige pytest + pytest-asyncio testsuite
-├── app.php                     # Lichtgewicht PHP reverse-proxy brug
+├── app.php                     # Lichtgewicht PHP reverse-proxy brug (beheer)
+├── provision.php               # Server-to-server provisioning ontvanger (beveiligd met X-Access-Code)
+├── klant.php                   # Publiek persoonlijk statusportaal per MKB-abonnee
 ├── mkb-uptime-bot.service      # Systemd user-unit voor VPS deployment
 └── pyproject.toml
 ```

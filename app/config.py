@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     enable_playwright: bool = True
     max_concurrent_checks: int = 50
     retention_days: int = 30
+    provision_access_code: str = "MKB-VPS-2026-SECRET"
 
     # Telegram
     telegram_bot_token: str = ""

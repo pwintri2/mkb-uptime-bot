@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import enum
+import secrets
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -16,6 +17,10 @@ from app.database import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def generate_subscriber_token() -> str:
+    return f"mkb_{secrets.token_urlsafe(18)}"
 
 
 class PlanTier(str, enum.Enum):
@@ -54,6 +59,14 @@ class Subscriber(Base):
         Enum(PlanTier), default=PlanTier.PRO, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    access_token: Mapped[str] = mapped_column(
+        String(64), default=generate_subscriber_token, nullable=False, index=True
+    )
+    payment_status: Mapped[str] = mapped_column(
+        String(40), default="active", nullable=False
+    )
+    mollie_customer_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    mollie_subscription_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     monitors: Mapped[list["Monitor"]] = relationship(

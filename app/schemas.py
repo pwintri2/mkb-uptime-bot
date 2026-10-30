@@ -32,3 +32,31 @@ class CreateMonitorForm(BaseModel):
     ssl_warn_days: int = 14
     telegram_chat_id: str = ""
     whatsapp_number: str = ""
+
+
+class ProvisionSubscriberRequest(BaseModel):
+    access_code: str = ""
+    company_name: str
+    contact_email: str
+    plan_tier: str = "pro"
+    monitor_name: str = ""
+    url: str
+    expected_keywords: str = ""
+    check_form_selector: str | None = "form"
+    max_response_ms: int = 2500
+    ssl_warn_days: int = 14
+    telegram_chat_id: str = ""
+    whatsapp_number: str = ""
+    mollie_customer_id: str | None = None
+    mollie_subscription_id: str | None = None
+    payment_status: str = "active"
+    run_initial_check: bool = True
+
+
+class SubscriptionStatusUpdateRequest(BaseModel):
+    access_code: str = ""
+    subscriber_token: str | None = None
+    mollie_customer_id: str | None = None
+    mollie_subscription_id: str | None = None
+    payment_status: str  # "active", "past_due", "canceled"
+    is_active: bool = True

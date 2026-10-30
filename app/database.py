@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -43,6 +43,17 @@ AsyncSessionLocal = async_sessionmaker(
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Automatische migratie voor bestaande SQLite tabellen op de VPS
+        for col_sql in (
+            "ALTER TABLE subscribers ADD COLUMN access_token VARCHAR(64) DEFAULT 'mkb_default'",
+            "ALTER TABLE subscribers ADD COLUMN payment_status VARCHAR(40) DEFAULT 'active'",
+            "ALTER TABLE subscribers ADD COLUMN mollie_customer_id VARCHAR(80)",
+            "ALTER TABLE subscribers ADD COLUMN mollie_subscription_id VARCHAR(80)",
+        ):
+            try:
+                await conn.execute(text(col_sql))
+            except Exception:
+                pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
