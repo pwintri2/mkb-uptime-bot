@@ -1,15 +1,16 @@
 <?php
 /**
- * Verwerkt het aanmeldformulier op philip-wintrip.com (of eigen domein):
- * 1. Als Mollie API-sleutel is ingevuld: maakt een Mollie Customer + 1e iDEAL-betaling (sequenceType=first) aan
- *    voor automatische maandelijkse SEPA-afschrijving.
- * 2. Als Mollie API-sleutel nog leeg is (directe activatie / testmodus):
- *    logt via wintrip_vps_auth.php automatisch met de pincode + X-Access-Code in op jouw VPS
- *    en maakt het account + 1-minuut monitor aan!
+ * subscribe.php
+ * -------------
+ * Verwerkt het aanmeldformulier met Tikkie-betaling:
+ * - Levert NIETS voordat er betaald is!
+ * - Slaat de aanmelding op met status 'waiting_for_tikkie' en een uniek betaalkenmerk (bijv. MKB-4821).
+ * - Stuurt jou (indien ingesteld) direct een Telegram-bericht met een 1-klik knop:
+ *   "✓ Tikkie Betaald -> Nu Activeren op VPS".
+ * - Stuurt de klant naar tikkie-betalen.php waar ze via jouw Tikkie-link met iDEAL betalen.
  */
 
 $config = require __DIR__ . '/config.php';
-require_once __DIR__ . '/wintrip_vps_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: index.php');
@@ -22,148 +23,87 @@ if (!isset($config['plans'][$planTier])) {
 }
 $planInfo = $config['plans'][$planTier];
 
-$payload = [
-    'access_code'         => $config['vps_access_code'],
-    'company_name'        => trim($_POST['company_name'] ?? ''),
-    'contact_email'       => trim($_POST['contact_email'] ?? ''),
-    'plan_tier'           => $planTier,
-    'monitor_name'        => trim($_POST['monitor_name'] ?? ''),
-    'url'                 => trim($_POST['url'] ?? ''),
-    'expected_keywords'   => trim($_POST['expected_keywords'] ?? ''),
-    'check_form_selector' => trim($_POST['check_form_selector'] ?? 'form'),
-    'telegram_chat_id'    => trim($_POST['telegram_chat_id'] ?? ''),
-    'whatsapp_number'     => trim($_POST['whatsapp_number'] ?? ''),
-    'payment_status'      => 'active',
-    'run_initial_check'   => true,
-];
+$companyName  = trim($_POST['company_name'] ?? '');
+$contactEmail = trim($_POST['contact_email'] ?? '');
+$url          = trim($_POST['url'] ?? '');
 
-if ($payload['company_name'] === '' || $payload['contact_email'] === '' || $payload['url'] === '') {
+if ($companyName === '' || $contactEmail === '' || $url === '') {
     http_response_code(400);
     echo "Vul alle verplichte velden (bedrijfsnaam, e-mail en URL) in.";
     exit;
 }
 
-/**
- * Hulpfunctie om via wintrip_vps_auth.php (automatische pincode-sessie + X-Access-Code)
- * het account op de VPS aan te maken.
- */
-function provisionOnVps(array $config, array $payload): array {
-    $res = wintripVpsRequest(
-        $config,
-        $config['vps_provision_url'],
-        'POST',
-        json_encode($payload),
-        ['Content-Type: application/json']
-    );
+$orderId       = 'ord_' . bin2hex(random_bytes(6));
+$referenceCode = 'MKB-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5));
+$approveToken  = bin2hex(random_bytes(16));
 
-    if (!$res['ok']) {
-        $decodedErr = json_decode($res['body'] ?: '{}', true);
-        return [
-            'ok'    => false,
-            'error' => $decodedErr['detail'] ?? $decodedErr['error'] ?? $res['error'] ?? ('VPS HTTP ' . $res['status']),
-        ];
-    }
+$orderData = [
+    'order_id'            => $orderId,
+    'reference_code'      => $referenceCode,
+    'approve_token'       => $approveToken,
+    'status'              => 'waiting_for_tikkie', // Wordt pas 'active' nadat jij Tikkie-betaling bevestigt!
+    'created_at'          => date('Y-m-d H:i:s'),
+    'paid_Confirmed_at'   => null,
+    'next_renewal_date'   => date('Y-m-d', strtotime('+1 month')),
+    'plan_tier'           => $planTier,
+    'plan_name'           => $planInfo['name'],
+    'amount_eur'          => $planInfo['amount'],
+    'tikkie_url'          => $planInfo['tikkie_url'],
+    'customer_clicked_paid' => false,
+    'vps_payload'         => [
+        'access_code'         => $config['vps_access_code'],
+        'company_name'        => $companyName,
+        'contact_email'       => $contactEmail,
+        'plan_tier'           => $planTier,
+        'monitor_name'        => trim($_POST['monitor_name'] ?? '') ?: $companyName,
+        'url'                 => $url,
+        'expected_keywords'   => trim($_POST['expected_keywords'] ?? ''),
+        'check_form_selector' => trim($_POST['check_form_selector'] ?? 'form'),
+        'telegram_chat_id'    => trim($_POST['telegram_chat_id'] ?? ''),
+        'whatsapp_number'     => trim($_POST['whatsapp_number'] ?? ''),
+        'payment_status'      => 'active',
+        'run_initial_check'   => true,
+    ],
+    'vps_result'          => null,
+];
 
-    $decoded = json_decode($res['body'], true);
-    if (!is_array($decoded) || empty($decoded['ok'])) {
-        return [
-            'ok'    => false,
-            'error' => $decoded['detail'] ?? $decoded['error'] ?? 'Ongeldig antwoord van VPS.',
-        ];
-    }
-    return $decoded;
+$orderDir = __DIR__ . '/data/orders';
+if (!is_dir($orderDir)) {
+    mkdir($orderDir, 0700, true);
+    @file_put_contents($orderDir . '/.htaccess', "Deny from all\n");
 }
+file_put_contents($orderDir . '/' . $orderId . '.json', json_encode($orderData, JSON_PRETTY_PRINT));
 
-/**
- * Hulpfunctie voor Mollie REST API calls.
- */
-function mollieRequest(string $apiKey, string $endpoint, array $data): array {
-    $ch = curl_init('https://api.mollie.com/v2/' . ltrim($endpoint, '/'));
+// Stuur direct een 1-klik goedkeuringslink naar jouw eigen Telegram (indien geconfigureerd)
+if (!empty($config['admin_telegram_bot_token']) && !empty($config['admin_telegram_chat_id'])) {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $baseUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
+    $oneClickApproveUrl = $baseUrl . '/beheer-tikkie.php?action=approve&order=' . urlencode($orderId) . '&token=' . urlencode($approveToken);
+
+    $msg = "💳 NIEUWE TIKKIE AANMELDING ({$referenceCode})\n"
+         . "Bedrijf: {$companyName}\n"
+         . "E-mail: {$contactEmail}\n"
+         . "Pakket: {$planInfo['name']} (€ {$planInfo['amount']} / mnd)\n"
+         . "URL: {$url}\n\n"
+         . "⏳ Status: Wacht op Tikkie-betaling.\n"
+         . "✅ Zodra de Tikkie binnen is, klik hier om het account op de VPS te activeren:\n"
+         . $oneClickApproveUrl;
+
+    $ch = curl_init("https://api.telegram.org/bot{$config['admin_telegram_bot_token']}/sendMessage");
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . $apiKey,
-            'Content-Type: application/json',
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($data),
-        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS     => json_encode([
+            'chat_id'                  => $config['admin_telegram_chat_id'],
+            'text'                     => $msg,
+            'disable_web_page_preview' => true,
+        ]),
+        CURLOPT_TIMEOUT        => 5,
     ]);
-    $raw = curl_exec($ch);
+    @curl_exec($ch);
     curl_close($ch);
-    return json_decode($raw ?: '{}', true) ?: [];
 }
 
-// ============================================================================
-// OPTIE A: Mollie iDEAL + Automatische Maandelijkse SEPA-incasso is geconfigureerd
-// ============================================================================
-if (!empty($config['mollie_api_key'])) {
-    $apiKey = $config['mollie_api_key'];
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $baseUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
-
-    // 1. Maak Mollie Customer aan
-    $customer = mollieRequest($apiKey, '/customers', [
-        'name'  => $payload['company_name'],
-        'email' => $payload['contact_email'],
-    ]);
-    if (empty($customer['id'])) {
-        http_response_code(502);
-        echo "Kon geen Mollie-klant aanmaken. Controleer je MOLLIE_API_KEY.";
-        exit;
-    }
-
-    $payload['mollie_customer_id'] = $customer['id'];
-    $orderId = 'ord_' . bin2hex(random_bytes(8));
-
-    $orderDir = __DIR__ . '/data/pending_orders';
-    if (!is_dir($orderDir)) {
-        mkdir($orderDir, 0750, true);
-    }
-    file_put_contents($orderDir . '/' . $orderId . '.json', json_encode($payload));
-
-    // 2. Start 1e betaling (sequenceType = first) om het SEPA-mandaat voor maandelijkse afschrijving vast te leggen
-    $payment = mollieRequest($apiKey, '/payments', [
-        'amount'       => [
-            'currency' => 'EUR',
-            'value'    => $planInfo['amount'],
-        ],
-        'customerId'   => $customer['id'],
-        'sequenceType' => 'first',
-        'description'  => $planInfo['description'] . ' - Eerste betaling & SEPA-machtiging',
-        'redirectUrl'  => $baseUrl . '/bedankt.php?order=' . urlencode($orderId),
-        'webhookUrl'   => $baseUrl . '/webhook.php',
-        'metadata'     => [
-            'order_id'  => $orderId,
-            'plan_tier' => $planTier,
-        ],
-    ]);
-
-    $checkoutUrl = $payment['_links']['checkout']['href'] ?? '';
-    if ($checkoutUrl !== '') {
-        header('Location: ' . $checkoutUrl);
-        exit;
-    }
-
-    http_response_code(502);
-    echo "Kon iDEAL-betaallink niet starten bij Mollie.";
-    exit;
-}
-
-// ============================================================================
-// OPTIE B: Directe VPS-activatie met automatische pincode-login + toegangsnummer
-// ============================================================================
-$result = provisionOnVps($config, $payload);
-if (empty($result['ok'])) {
-    http_response_code(502);
-    echo "Fout bij aanmaken van account op de VPS: " . htmlspecialchars($result['error'] ?? 'Onbekend');
-    exit;
-}
-
-$localPortal = 'status.php?token=' . urlencode($result['subscriber_token']);
-header(
-    'Location: bedankt.php?token=' . urlencode($result['subscriber_token'])
-    . '&company=' . urlencode($result['company_name'])
-    . '&portal=' . urlencode($localPortal)
-);
+header('Location: tikkie-betalen.php?order=' . urlencode($orderId));
 exit;

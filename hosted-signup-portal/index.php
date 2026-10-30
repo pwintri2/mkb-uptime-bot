@@ -177,7 +177,7 @@ $mollieConfigured = !empty($config['mollie_api_key']);
                     <label class="flex items-start gap-2.5 cursor-pointer">
                         <input type="checkbox" name="sepa_mandate" required class="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500">
                         <span>
-                            Ik ga akkoord met de maandelijkse abonnementskosten en machtig automatische maandelijkse SEPA-incasso na de eerste iDEAL-betaling.Maandelijks met 1 klik opzegbaar.
+                            Ik ga akkoord met de maandelijkse abonnementskosten via Tikkie (iDEAL). Het monitoring-account wordt direct geactiveerd zodra de betaling is voldaan. Maandelijks opzegbaar.
                         </span>
                     </label>
                 </div>
